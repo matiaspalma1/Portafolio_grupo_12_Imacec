@@ -48,13 +48,13 @@ BCCH_PASSWORD=tu_password
 
 Para descargar las 18 series desde la API del Banco Central, generar la base de datos relacional SQLite y ejecutar las consultas de coyuntura con fecha de corte oficial (2026-08-31), ejecuta:
 
-# 1. Carga idempotente a la base SQLite
+1. Carga a la base SQLite
 python src/carga_db.py --hasta 2026-08-31
 
-# 2. Verificación del estado de la base de datos
+2. Verificación del estado de la base de datos
 python src/revisar_db.py
 
-# 3. Ejecución de consultas SQL de coyuntura (JOIN + GROUP BY + Ventana)
+3. Ejecución de consultas SQL de coyuntura (JOIN + GROUP BY + Ventana)
 python src/probar_consultas.py
 
 ## 5. Estructura
