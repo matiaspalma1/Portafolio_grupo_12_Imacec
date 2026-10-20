@@ -31,8 +31,11 @@ https://github.com/matiaspalma1/Portafolio-grupo-12-Imacec
 
 
 Asegúrate de contar con Python 3.11 o superior. Instala las dependencias requeridas ejecutando:
-```bash
+
 pip install -r requirements.txt
+
+## 3. Credenciales
+
 
 Completa tu correo y clave del Banco Central de Chile en el archivo, usando el ejemplo de .env.example
 
@@ -40,19 +43,23 @@ BCCH_USUARIO=tu_correo@ejemplo.cl
 
 BCCH_PASSWORD=tu_password
 
+## 4. Reproduccion
+
+
 Para descargar las 18 series desde la API del Banco Central, generar la base de datos relacional SQLite y ejecutar las consultas de coyuntura con fecha de corte oficial (2026-08-31), ejecuta:
 
-# 1. Carga idempotente a la base SQLite
+1. Carga a la base SQLite
 python src/carga_db.py --hasta 2026-08-31
 
-# 2. Verificación del estado de la base de datos
+2. Verificación del estado de la base de datos
 python src/revisar_db.py
 
-# 3. Ejecución de consultas SQL de coyuntura (JOIN + GROUP BY + Ventana)
+3. Ejecución de consultas SQL de coyuntura (JOIN + GROUP BY + Ventana)
 python src/probar_consultas.py
 
-Donde:
- 
+## 5. Estructura
+
+
 data/: Contiene la base de datos relacional coyuntura.db (excluida de Git por .gitignore).
 
 sql/: Archivos .sql con el esquema relacional (01_esquema.sql) y las consultas de agregación y variaciones (02_consultas.sql).
