@@ -1,3 +1,29 @@
+"""
+Configuración central del proyecto.
+
+Las credenciales se leen desde el archivo .env
+Copiar .env.example a .env y completen sus claves.
+"""
+import os
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+# Rutas del proyecto
+RAIZ = Path(__file__).resolve().parents[1]
+RUTA_DATOS = RAIZ / "data"
+RUTA_DB = RUTA_DATOS / "coyuntura.db"
+RUTA_SQL = RAIZ / "sql"
+
+# Cargar credenciales desde .env
+load_dotenv(RAIZ / ".env")
+
+# --- Banco Central de Chile ---
+# Registro gratuito en: https://si3.bcentral.cl/Siete/es/Siete/API
+BCCH_USUARIO = os.getenv("BCCH_USUARIO", "")
+BCCH_PASSWORD = os.getenv("BCCH_PASSWORD", "")
+
+
 # ==========================================
 # CATALOGO DE SERIES
 # Proyecto: Proyección del IMACEC
