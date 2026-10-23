@@ -1,7 +1,17 @@
+# Credenciales
 .env
 
+# Base de datos local y datos descargados
 data/*.db
+data/*.csv
+!data/.gitkeep
 
+# Python
 __pycache__/
-
+*.pyc
 .ipynb_checkpoints/
+venv/
+.venv/
+
+# Power BI
+*.pbix.bak
