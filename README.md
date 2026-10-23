@@ -1,6 +1,6 @@
 # Portafolio Grupo 12 — Monitor de Coyuntura e IMACEC
 
-**Ciencia de Datos para Economía (ICO09425)**  
+**Ciencia de Datos para Economía**  
 *Universidad Diego Portales*
 
 ---
