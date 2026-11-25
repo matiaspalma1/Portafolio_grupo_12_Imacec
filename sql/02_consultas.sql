@@ -14,12 +14,12 @@
 -- Combina GROUP BY (diario a mensual), JOIN y Función de Ventana (LAG)
 -- ============================================================
 WITH mensual AS (
-    -- Agrupa series diarias a nivel mensual mediante promedio
-    SELECT 
+    SELECT
         o.id_serie,
         strftime('%Y-%m', o.fecha) AS mes,
-        AVG(o.valor) AS valor_promedio
+        AVG(o.valor) AS valor_mensual
     FROM observaciones AS o
+    WHERE o.fecha BETWEEN '2010-01-01' AND '2026-08-01'
     GROUP BY o.id_serie, mes
 ),
 variaciones AS (
@@ -93,12 +93,13 @@ ORDER BY s.nombre, anio;
 -- Suavizamiento para series volátiles antes de graficar
 -- ============================================================
 WITH mensual AS (
-    SELECT 
-        id_serie,
-        strftime('%Y-%m', fecha) AS mes,
-        AVG(valor) AS valor_mensual
-    FROM observaciones
-    GROUP BY id_serie, mes
+    SELECT
+        o.id_serie,
+        strftime('%Y-%m', o.fecha) AS mes,
+        AVG(o.valor) AS valor_mensual
+    FROM observaciones AS o
+    WHERE o.fecha BETWEEN '2010-01-01' AND '2026-08-01'
+    GROUP BY o.id_serie, mes
 )
 SELECT 
     id_serie,

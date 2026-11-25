@@ -3,7 +3,7 @@ Generador del Dashboard Ejecutivo de Coyuntura y Proyección del IMACEC.
 
 Reemplaza la capa de Power BI generando una figura compuesta de alta resolución
 directamente desde la base de datos relacional SQLite (data/coyuntura.db),
-sin pasos manuales intermedios.
+fijando el período oficial 2010-01-01 a 2026-08-01 y un horizonte de proyección de 24 meses.
 
 Uso desde la raíz del repositorio:
     python src/dashboard.py
@@ -29,13 +29,17 @@ except ImportError:
 
 warnings.filterwarnings("ignore")
 
+FECHA_INICIO = "2010-01-01"
+FECHA_FIN = "2026-08-01"
+LIMITE_X_MIN = pd.Timestamp(FECHA_INICIO)
+LIMITE_X_MAX = pd.Timestamp(FECHA_FIN)
 RUTA_SALIDA = config.RAIZ / "outputs" / "dashboard_coyuntura_imacec.png"
 
 
 def extraer_datos_dashboard(engine) -> pd.DataFrame:
     """
-    Consulta SQLite aplicando agregación mensual, funciones de ventana (LAG y AVG OVER)
-    y cruce con el catálogo para alimentar todos los paneles del dashboard.
+    Consulta SQLite aplicando filtro temporal oficial (2010-01-01 a 2026-08-01),
+    agregación mensual, funciones de ventana (LAG y AVG OVER) y cruce con el catálogo.
     """
     query = text("""
     WITH mensual AS (
@@ -44,6 +48,7 @@ def extraer_datos_dashboard(engine) -> pd.DataFrame:
             strftime('%Y-%m', o.fecha) AS mes,
             AVG(o.valor) AS valor_mensual
         FROM observaciones AS o
+        WHERE o.fecha BETWEEN :inicio AND :fin
         GROUP BY o.id_serie, mes
     ),
     indicadores AS (
@@ -75,14 +80,19 @@ def extraer_datos_dashboard(engine) -> pd.DataFrame:
     ORDER BY i.id_serie, i.mes;
     """)
     with engine.connect() as conn:
-        df = pd.read_sql(query, conn, parse_dates=["fecha"])
+        df = pd.read_sql(
+            query,
+            conn,
+            params={"inicio": FECHA_INICIO, "fin": FECHA_FIN},
+            parse_dates=["fecha"],
+        )
     return df
 
 
-def evaluar_y_proyectar_imacec(serie_var_12m: pd.Series, h_eval: int = 12, h_futuro: int = 6) -> dict:
+def evaluar_y_proyectar_imacec(serie_var_12m: pd.Series, h_eval: int = 12, h_futuro: int = 24) -> dict:
     """
     Evalúa fuera de muestra (sin look-ahead bias) la variación interanual del Imacec
-    frente al benchmark ingenuo y genera la proyección futura con intervalos al 95%.
+    frente al benchmark ingenuo y genera la proyección a 24 meses con intervalos al 95%.
     """
     y = serie_var_12m.dropna().asfreq("MS")
     train, test = y.iloc[:-h_eval], y.iloc[-h_eval:]
@@ -91,14 +101,12 @@ def evaluar_y_proyectar_imacec(serie_var_12m: pd.Series, h_eval: int = 12, h_fut
     preds_oos = []
     historia = train.copy()
     for fecha in test.index:
-        # Modelo AR(2) estacional sobre la variación interanual estacionaria
         mod = SARIMAX(historia, order=(2, 0, 1), seasonal_order=(1, 0, 0, 12))
         res = mod.fit(disp=False)
         preds_oos.append(res.forecast(1).iloc[0])
         historia = pd.concat([historia, test.loc[[fecha]]])
 
     preds_oos = pd.Series(preds_oos, index=test.index)
-    # Benchmark ingenuo: persistencia del último dato conocido (caminata aleatoria)
     bench_oos = y.shift(1).loc[test.index]
 
     # 2. Métricas de evaluación fuera de muestra
@@ -108,7 +116,7 @@ def evaluar_y_proyectar_imacec(serie_var_12m: pd.Series, h_eval: int = 12, h_fut
     mae_bench = float(np.mean(np.abs(test - bench_oos)))
     r2_oos = float(1.0 - np.sum((test - preds_oos) ** 2) / np.sum((test - bench_oos) ** 2))
 
-    # 3. Proyección hacia adelante usando toda la muestra disponible
+    # 3. Proyección hacia adelante a 24 meses usando toda la muestra disponible
     mod_full = SARIMAX(y, order=(2, 0, 1), seasonal_order=(1, 0, 0, 12)).fit(disp=False)
     fc_obj = mod_full.get_forecast(steps=h_futuro)
     fc_media = fc_obj.predicted_mean
@@ -136,21 +144,21 @@ def construir_dashboard(df: pd.DataFrame, res_fc: dict, ruta_salida: Path = RUTA
     ruta_salida.parent.mkdir(parents=True, exist_ok=True)
     plt.style.use("seaborn-v0_8-whitegrid" if "seaborn-v0_8-whitegrid" in plt.style.available else "default")
 
-    # Filtrar series clave
-    imacec = df[df["id_serie"] == "F032.IMC.IND.Z.Z.EP18.Z.Z.0.M"].set_index("fecha")
-    cobre = df[df["id_serie"] == "F019.PPB.PRE.40.M"].set_index("fecha")
-    comercio = df[df["id_serie"] == "F032.IMC.IND.Z.Z.EP18.COM.Z.0.M"].set_index("fecha")
-    tpm = df[df["id_serie"] == "F022.TPM.TIN.D001.NO.Z.M"].set_index("fecha")
+    rango_mensual = pd.date_range(FECHA_INICIO, FECHA_FIN, freq="MS")
 
-    ultimo_mes = imacec.index.max().strftime("%Y-%m")
-    ultimo_nivel = imacec["valor_mensual"].iloc[-1]
-    ultima_var = imacec["var_12m_pct"].iloc[-1]
+    imacec = df[df["id_serie"] == "F032.IMC.IND.Z.Z.EP18.Z.Z.0.M"].set_index("fecha").reindex(rango_mensual)
+    cobre = df[df["id_serie"] == "F019.PPB.PRE.40.M"].set_index("fecha").reindex(rango_mensual)
+    comercio = df[df["id_serie"] == "F032.IMC.IND.Z.Z.EP18.COM.Z.0.M"].set_index("fecha").reindex(rango_mensual)
+    tpm = df[df["id_serie"] == "F022.TPM.TIN.D001.NO.Z.M"].set_index("fecha").reindex(rango_mensual)
+
+    ultimo_mes = LIMITE_X_MAX.strftime("%Y-%m")
+    ultimo_nivel = imacec["valor_mensual"].loc[LIMITE_X_MAX]
+    ultima_var = imacec["var_12m_pct"].loc[LIMITE_X_MAX]
     media_hist_var = imacec["var_12m_pct"].dropna().mean()
 
-    fig, axes = plt.subplots(2, 2, figsize=(16, 9.5))
+    fig, axes = plt.subplots(2, 2, figsize=(16.5, 9.8))
     fig.patch.set_facecolor("white")
 
-    # Título maestro ejecutivo
     fig.suptitle(
         "MONITOR DE COYUNTURA MACROECONÓMICA Y PROYECCIÓN DEL IMACEC — CHILE",
         fontsize=15,
@@ -161,22 +169,22 @@ def construir_dashboard(df: pd.DataFrame, res_fc: dict, ruta_salida: Path = RUTA
     fig.text(
         0.5,
         0.935,
-        f"Fuente: Banco Central de Chile (API SieteRestWS -> SQLite) | Corte de datos: {ultimo_mes} | Grupo 12",
+        f"Fuente: Banco Central de Chile (API SieteRestWS -> SQLite) | Período: {FECHA_INICIO} a {FECHA_FIN} | Proyección: 24 meses | Grupo 12",
         ha="center",
         fontsize=10,
         color="#4a5568",
     )
 
     # -------------------------------------------------------------------------
-    # PANEL 1: Serie principal en nivel + Promedio móvil 12M + Último dato
+    # PANEL 1: Serie principal en nivel + Promedio móvil 12M (2010-01 a 2026-08)
     # -------------------------------------------------------------------------
     ax1 = axes[0, 0]
-    ax1.plot(imacec.index, imacec["valor_mensual"], color="#1f4e78", lw=1.8, label="IMACEC (Índice 2018=100)")
-    ax1.plot(imacec.index, imacec["pm_12m"], color="#d95f02", lw=1.8, linestyle="--", label="Promedio móvil 12M")
-    ax1.scatter(imacec.index[-1], ultimo_nivel, color="#c00000", s=65, zorder=5)
+    ax1.plot(imacec.index, imacec["valor_mensual"], color="#1f4e78", lw=1.7, label="IMACEC (Índice 2018=100)")
+    ax1.plot(imacec.index, imacec["pm_12m"], color="#d95f02", lw=1.7, linestyle="--", label="Promedio móvil 12M")
+    ax1.scatter(LIMITE_X_MAX, ultimo_nivel, color="#c00000", s=60, zorder=5)
     ax1.annotate(
         f"Último ({ultimo_mes}): {ultimo_nivel:.1f}",
-        xy=(imacec.index[-1], ultimo_nivel),
+        xy=(LIMITE_X_MAX, ultimo_nivel),
         xytext=(-125, -22),
         textcoords="offset points",
         fontsize=9.5,
@@ -184,12 +192,15 @@ def construir_dashboard(df: pd.DataFrame, res_fc: dict, ruta_salida: Path = RUTA
         color="#c00000",
         arrowprops=dict(arrowstyle="->", color="#c00000", lw=1),
     )
-    ax1.set_title("1. Trayectoria Histórica del IMACEC y Tendencia (PM 12M)", fontsize=11, fontweight="bold", color="#1b365d")
+    ax1.set_xlim(LIMITE_X_MIN, LIMITE_X_MAX)
+    ax1.xaxis.set_major_locator(mdates.YearLocator(2))
+    ax1.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
+    ax1.set_title("1. Trayectoria Histórica del IMACEC y Tendencia (2010-01 a 2026-08)", fontsize=11, fontweight="bold", color="#1b365d")
     ax1.set_ylabel("Índice 2018 = 100")
     ax1.legend(loc="upper left", frameon=True)
 
     # -------------------------------------------------------------------------
-    # PANEL 2: Indicador derivado — Variación Interanual (%) vs. Media Histórica
+    # PANEL 2: Indicador derivado — Variación Interanual (%) (2010-01 a 2026-08)
     # -------------------------------------------------------------------------
     ax2 = axes[0, 1]
     var_s = imacec["var_12m_pct"].dropna()
@@ -197,37 +208,34 @@ def construir_dashboard(df: pd.DataFrame, res_fc: dict, ruta_salida: Path = RUTA
     ax2.bar(var_s.index, var_s, width=22, color=colores_barras, alpha=0.85, label="Var. Interanual (%)")
     ax2.axhline(0, color="black", lw=0.9)
     ax2.axhline(media_hist_var, color="#2f855a", linestyle="--", lw=1.4, label=f"Promedio histórico ({media_hist_var:.1f}%)")
-    ax2.scatter(var_s.index[-1], ultima_var, color="#c00000", s=60, zorder=5)
+    ax2.scatter(LIMITE_X_MAX, ultima_var, color="#c00000", s=60, zorder=5)
     ax2.annotate(
         f"{ultimo_mes}: {ultima_var:+.1f}%",
-        xy=(var_s.index[-1], ultima_var),
+        xy=(LIMITE_X_MAX, ultima_var),
         xytext=(-85, 16 if ultima_var >= 0 else -22),
         textcoords="offset points",
         fontsize=9.5,
         fontweight="bold",
         color="#c00000",
     )
+    ax2.set_xlim(LIMITE_X_MIN, LIMITE_X_MAX)
+    ax2.xaxis.set_major_locator(mdates.YearLocator(2))
+    ax2.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
     ax2.set_title("2. Dinámica Interanual del IMACEC (Var. % 12 Meses)", fontsize=11, fontweight="bold", color="#1b365d")
     ax2.set_ylabel("Variación % 12M")
     ax2.legend(loc="upper left", frameon=True)
 
     # -------------------------------------------------------------------------
-    # PANEL 3: Contraste Doméstico vs. Sector Externo (últimos 5 años)
+    # PANEL 3: Drivers Sectoriales, Externos y TPM (2010-01 a 2026-08)
     # -------------------------------------------------------------------------
     ax3 = axes[1, 0]
-    inicio_5a = imacec.index.max() - pd.DateOffset(years=5)
-    cobre_5a = cobre.loc[inicio_5a:, "var_12m_pct"]
-    comercio_5a = comercio.loc[inicio_5a:, "var_12m_pct"]
-
-    ax3.plot(comercio_5a.index, comercio_5a, color="#2b6cb0", lw=1.8, label="Doméstico: IMACEC Comercio (Var. % 12M)")
-    ax3.plot(cobre_5a.index, cobre_5a, color="#dd6b20", lw=1.8, label="Externo: Precio Cobre (Var. % 12M)")
+    ax3.plot(comercio.index, comercio["var_12m_pct"], color="#2b6cb0", lw=1.5, label="Sectorial: IMACEC Comercio (Var. % 12M)")
+    ax3.plot(cobre.index, cobre["var_12m_pct"], color="#dd6b20", lw=1.5, alpha=0.85, label="Externo: Precio Cobre (Var. % 12M)")
     ax3.axhline(0, color="black", lw=0.8, linestyle=":")
 
-    # Eje secundario para TPM si existe en la base
-    if not tpm.empty:
+    if not tpm.dropna(how="all").empty:
         ax3_b = ax3.twinx()
-        tpm_5a = tpm.loc[inicio_5a:, "valor_mensual"]
-        ax3_b.plot(tpm_5a.index, tpm_5a, color="#718096", lw=1.4, linestyle="--", label="TPM (%) [eje der.]")
+        ax3_b.plot(tpm.index, tpm["valor_mensual"], color="#718096", lw=1.4, linestyle="--", label="TPM (%) [eje der.]")
         ax3_b.set_ylabel("TPM (%)", color="#718096")
         ax3_b.grid(False)
         lines_1, labels_1 = ax3.get_legend_handles_labels()
@@ -236,25 +244,26 @@ def construir_dashboard(df: pd.DataFrame, res_fc: dict, ruta_salida: Path = RUTA
     else:
         ax3.legend(loc="upper left", fontsize=9, frameon=True)
 
-    ax3.set_title("3. Drivers de Coyuntura: Demanda Interna, Cobre y Política Monetaria", fontsize=11, fontweight="bold", color="#1b365d")
+    ax3.set_xlim(LIMITE_X_MIN, LIMITE_X_MAX)
+    ax3.xaxis.set_major_locator(mdates.YearLocator(2))
+    ax3.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
+    ax3.set_title("3. Indicadores Sectoriales, Externos y TPM (2010-01 a 2026-08)", fontsize=11, fontweight="bold", color="#1b365d")
     ax3.set_ylabel("Variación % 12M")
 
     # -------------------------------------------------------------------------
-    # PANEL 4: Evaluación Out-of-Sample vs Benchmark + Proyección Futura (IC 95%)
+    # PANEL 4: Evaluación Out-of-Sample + Proyección a 24 Meses (IC 95%)
     # -------------------------------------------------------------------------
     ax4 = axes[1, 1]
-    y_hist = res_fc["y"].iloc[-30:]
+    y_hist = res_fc["y"].iloc[-36:]
     ax4.plot(y_hist.index, y_hist, color="black", lw=2, label="Observado (Var. % 12M)")
-    ax4.plot(res_fc["preds_oos"].index, res_fc["preds_oos"], "--o", color="#1f77b4", ms=4, label="Modelo (Eval. Out-of-Sample)")
-    ax4.plot(res_fc["bench_oos"].index, res_fc["bench_oos"], ":s", color="#ff7f0e", ms=4, label="Benchmark Ingenuo")
+    ax4.plot(res_fc["preds_oos"].index, res_fc["preds_oos"], "--o", color="#1f77b4", ms=3.5, label="Modelo (Eval. Out-of-Sample 12M)")
+    ax4.plot(res_fc["bench_oos"].index, res_fc["bench_oos"], ":s", color="#ff7f0e", ms=3.5, label="Benchmark Ingenuo")
 
-    # Proyección futura e intervalo de confianza
     fc_m = res_fc["fc_media"]
     fc_ic = res_fc["fc_ic"]
-    ax4.plot(fc_m.index, fc_m, "-D", color="#2f855a", ms=4.5, lw=2, label="Proyección 6M")
+    ax4.plot(fc_m.index, fc_m, "-D", color="#2f855a", ms=3.5, lw=1.8, label="Proyección 24M (2026-09 a 2028-08)")
     ax4.fill_between(fc_ic.index, fc_ic.iloc[:, 0], fc_ic.iloc[:, 1], color="#2f855a", alpha=0.18, label="IC 95%")
 
-    # Recuadro con métricas de evaluación
     m = res_fc["metricas"]
     texto_metricas = (
         f"Evaluación Out-of-Sample (H=12M)\n"
@@ -273,10 +282,11 @@ def construir_dashboard(df: pd.DataFrame, res_fc: dict, ruta_salida: Path = RUTA
     )
 
     ax4.axhline(0, color="black", lw=0.8)
-    ax4.set_title("4. Evaluación Fuera de Muestra y Proyección del IMACEC", fontsize=11, fontweight="bold", color="#1b365d")
+    ax4.set_title("4. Evaluación Fuera de Muestra y Proyección a 24 Meses", fontsize=11, fontweight="bold", color="#1b365d")
     ax4.set_ylabel("Variación % 12M")
+    ax4.xaxis.set_major_locator(mdates.YearLocator(1))
     ax4.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
-    ax4.legend(loc="upper left", fontsize=8.5, frameon=True)
+    ax4.legend(loc="upper left", fontsize=8, frameon=True)
 
     plt.tight_layout(rect=[0, 0.01, 1, 0.92])
     plt.savefig(ruta_salida, dpi=300)
@@ -291,7 +301,7 @@ def main() -> None:
         df_dash[df_dash["id_serie"] == "F032.IMC.IND.Z.Z.EP18.Z.Z.0.M"]
         .set_index("fecha")["var_12m_pct"]
     )
-    resultados_fc = evaluar_y_proyectar_imacec(imacec_var, h_eval=12, h_futuro=6)
+    resultados_fc = evaluar_y_proyectar_imacec(imacec_var, h_eval=12, h_futuro=24)
     construir_dashboard(df_dash, resultados_fc)
 
 
