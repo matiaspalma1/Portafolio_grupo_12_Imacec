@@ -33,6 +33,7 @@ BCCH_PASSWORD = os.getenv("BCCH_PASSWORD", "")
 # 2 = Sector Externo
 # 3 = Mercado Laboral
 # 4 = Expectativas
+# 5 = Politica Monetaria
 # ==========================================
 
 SERIES_BCCH = [
@@ -167,23 +168,29 @@ SERIES_BCCH = [
 
     # Sector exportador relevante para varias regiones del país.
     # Ayuda a evaluar la situación del sector agrícola.
-    (
-        "F068.B1.FLU.B1.0.C.N.Z.Z.Z.Z.6.0.M",
-        "Exportaciones fruticolas",
-        "M",
-        "Millones USD",
-        2
-    ),
+
+    # No se elimina en caso de ser necesitada
+
+    #(
+    #    "F068.B1.FLU.B1.0.C.N.Z.Z.Z.Z.6.0.M",
+    #    "Exportaciones fruticolas",
+    #    "M",
+    #    "Millones USD",
+    #    2
+    #),
 
     # Las importaciones suelen aumentar cuando crece la demanda interna.
     # Funcionan como indicador complementario de actividad económica.
-    (
-        "F068.B1.FLU.Z.0.M.N.0.Z.Z.Z.6.0.M",
-        "Importaciones CIF",
-        "M",
-        "Millones USD",
-        2
-    ),
+
+    # No se elimina en caso de ser necesitada
+
+    #(
+    #    "F068.B1.FLU.Z.0.M.N.0.Z.Z.Z.6.0.M",
+    #    "Importaciones CIF",
+    #    "M",
+    #    "Millones USD",
+    #    2
+    #),
 
     # Aproxima el comportamiento del consumo de bienes importados.
     # Puede anticipar expansiones o desaceleraciones de la demanda interna.
@@ -231,6 +238,20 @@ SERIES_BCCH = [
         "M",
         "Porcentaje",
         4
+    ),
+
+    # ==========================================
+    # POLÍTICA MONETARIA
+    # ==========================================
+
+    # Instrumento principal del Banco Central para conducir la política monetaria.
+    # Sus cambios afectan el costo del crédito, el consumo y la inversión con rezago.
+    (
+        "F022.TPM.TIN.D001.NO.Z.D",
+        "Tasa de Politica Monetaria",
+        "D",
+        "Porcentaje",
+        5
     ),
 
 ]
