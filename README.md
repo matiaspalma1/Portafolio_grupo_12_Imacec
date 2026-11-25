@@ -4,7 +4,9 @@
 
 **Ciencia de Datos para Economía (ICO09425)**  
 *Escuela de Ingeniería Comercial — Universidad Diego Portales*  
-**Integrantes:** [Completar con los nombres de los integrantes del grupo]
+**Integrantes:** Alexander Guerra, Matias Palma
+**Ciencia de Datos para Economía**  
+*Universidad Diego Portales*
 
 ---
 
@@ -122,3 +124,6 @@ La base de datos relacional `data/coyuntura.db` consta de un diseño normalizado
 
 - El archivo `.env` está estrictamente excluido del control de versiones mediante `.gitignore` para proteger las credenciales privadas.
 - Las excepciones producidas durante la extracción aplican la función `enmascarar()` para evitar filtraciones accidentales de credenciales en los logs o tracebacks.
+El archivo .env está estrictamente excluido del control de versiones mediante .gitignore para proteger las credenciales privadas.
+
+Las excepciones producidas durante la extracción aplican la función enmascarar() para evitar filtraciones accidentales de credenciales en los logs o tracebacks.
