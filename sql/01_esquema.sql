@@ -39,3 +39,7 @@ INSERT OR IGNORE INTO temas (id_tema, tema, descripcion) VALUES
     (2, 'Sector Externo',  'Precios de commodities, tipo de cambio y comercio exterior'),
     (3, 'Mercado Laboral', 'Indicadores de empleo y tasa de desocupación'),
     (4, 'Expectativas',   'Expectativas del mercado sobre inflación y tipo de cambio');
+
+
+INSERT OR IGNORE INTO temas (id_tema, tema, descripcion) VALUES
+    (5, 'Politica Monetaria', 'Tasa de Politica Monetaria y condiciones financieras');
