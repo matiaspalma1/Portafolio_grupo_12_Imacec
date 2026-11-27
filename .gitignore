@@ -1,17 +1,51 @@
-# Credenciales
+# ==============================================================================
+# 1. CREDENCIALES Y CONFIGURACIÓN PRIVADA
+# ==============================================================================
 .env
+.env.*
+!.env.example
 
-# Base de datos local y datos descargados
+# ==============================================================================
+# 2. BASE DE DATOS LOCAL Y ARCHIVOS TEMPORALES DE SQLITE
+# ==============================================================================
 data/*.db
+data/*.sqlite
+data/*.sqlite3
+data/*.db-journal
+data/*.db-wal
+data/*.db-shm
 data/*.csv
+data/*.xlsx
 !data/.gitkeep
 
-# Python
+# ==============================================================================
+# 3. PYTHON, ENTORNOS VIRTUALES Y JUPYTER NOTEBOOKS
+# ==============================================================================
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+*.egg-info/
 .ipynb_checkpoints/
+.pytest_cache/
+.mypy_cache/
 venv/
 .venv/
+env/
 
-# Power BI
-*.pbix.bak
+# ==============================================================================
+# 4. SALIDAS Y ENTREGABLES GRÁFICOS
+# ==============================================================================
+outputs/*.tmp
+outputs/*.bak
+!outputs/.gitkeep
+!outputs/dashboard_coyuntura_imacec.png
+
+# ==============================================================================
+# 5. SISTEMAS OPERATIVOS Y EDITORES (WINDOWS / MACOS / VS CODE)
+# ==============================================================================
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+*.swp
