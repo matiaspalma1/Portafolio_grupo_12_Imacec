@@ -1,20 +1,18 @@
 """
-Generador del Dashboard Ejecutivo de Coyuntura y Proyección del IMACEC.
+Generador del Dashboard Ejecutivo e Imágenes Individuales de Coyuntura y Proyección del IMACEC.
 
-Reemplaza la capa de Power BI generando una lámina compuesta de alta resolución (300 DPI)
-conectada directamente a la base de datos relacional SQLite (data/coyuntura.db).
-
-Componentes visuales generados:
-1. Semáforo Macroeconómico (4 tarjetas KPI): Actividad (IMACEC), Impulso Externo (Cobre),
-   Política Monetaria (TPM) y Proyección Central AR(10) a 12 meses.
-2. Panel 1: Trayectoria histórica del IMACEC en nivel y promedio móvil de 12 meses.
-3. Panel 2: Dinámica interanual del IMACEC (Var. % 12M) frente a su promedio histórico.
-4. Panel 3: Drivers sectoriales (Comercio), externos (Precio del Cobre) y tasa rector (TPM).
-5. Panel 4: Evaluación multi-horizonte fuera de muestra (K=24 cortes) y proyección a 24M
-   con modelo ganador AR(10) e intervalos de confianza al 95% calibrados OOS.
+Conecta directamente a la base de datos relacional SQLite (data/coyuntura.db) y exporta:
+1. Lámina compuesta de alta resolución (300 DPI): outputs/dashboard_coyuntura_imacec.png
+2. Imágenes individuales listas para informe/presentación en el mismo directorio:
+   - 00_semaforo_macroeconomico.png
+   - 01_trayectoria_imacec_nivel.png
+   - 02_dinamica_interanual_imacec.png
+   - 03_drivers_sectoriales_externos_tpm.png
+   - 04_evaluacion_proyeccion_ar10.png
 
 Uso desde la raíz del repositorio:
     python src/dashboard.py
+    python src/dashboard.py --solo-individuales
     python src/dashboard.py --salida outputs/mi_dashboard.png
 """
 from __future__ import annotations
@@ -57,6 +55,11 @@ ID_OBJETIVO: str = getattr(config, "ID_OBJETIVO", "F032.IMC.IND.Z.Z.EP18.Z.Z.0.M
 ID_TPM: str = getattr(config, "ID_TPM", "F022.TPM.TIN.D001.NO.Z.D")
 ID_COMERCIO: str = "F032.IMC.IND.Z.Z.EP18.COM.Z.0.M"
 ID_COBRE: str = "F019.PPB.PRE.40.M"
+
+PIE_FUENTE = (
+    "Fuente: Elaboración propia con datos del Banco Central de Chile "
+    "(API SieteRestWS -> SQLite) | Grupo 12"
+)
 
 
 def extraer_datos_dashboard(engine: Engine) -> pd.DataFrame:
@@ -240,22 +243,22 @@ def _dibujar_tarjeta_semaforo(
     )
     ax.add_patch(tarjeta)
 
-    ax.scatter([0.08], [0.78], s=140, color=color_semaforo, zorder=4, edgecolors="white", linewidth=1.2)
+    ax.scatter([0.075], [0.78], s=130, color=color_semaforo, zorder=4, edgecolors="white", linewidth=1.2)
     ax.text(
-        0.14,
+        0.135,
         0.78,
         titulo,
-        fontsize=9.2,
+        fontsize=8.5,
         fontweight="bold",
         color="#1b365d",
         va="center",
         ha="left",
     )
     ax.text(
-        0.95,
+        0.955,
         0.78,
         estado_texto,
-        fontsize=7.8,
+        fontsize=7.4,
         fontweight="bold",
         color="white",
         va="center",
@@ -283,15 +286,8 @@ def _dibujar_tarjeta_semaforo(
     )
 
 
-def construir_dashboard(
-    df: pd.DataFrame,
-    res_fc: dict,
-    ruta_salida: Path = RUTA_SALIDA_DEFAULT,
-) -> None:
-    """Construye y exporta el dashboard ejecutivo con semáforo y 4 paneles."""
-    ruta_salida.parent.mkdir(parents=True, exist_ok=True)
-    plt.style.use("seaborn-v0_8-whitegrid" if "seaborn-v0_8-whitegrid" in plt.style.available else "default")
-
+def _preparar_series_y_tarjetas(df: pd.DataFrame, res_fc: dict) -> dict:
+    """Prepara las series alineadas y los parámetros de las 4 tarjetas KPI."""
     rango_mensual = pd.date_range(FECHA_INICIO, FECHA_FIN, freq="MS")
     p_opt = res_fc["p_optimo"]
 
@@ -309,7 +305,6 @@ def construir_dashboard(
     ultima_var = float(var_s.iloc[-1])
     media_hist_var = float(var_s.mean())
 
-    # Cálculo de estados para el Semáforo Macroeconómico (4 tarjetas)
     # 1. Actividad (IMACEC Var. 12M)
     if ultima_var >= media_hist_var:
         sem_act = ("EXPANSIÓN", "#2f855a", "#f0fff4")
@@ -354,88 +349,68 @@ def construir_dashboard(
     else:
         sem_fc = ("RIESGO BAJA", "#c53030", "#fff5f5")
 
-    # Grilla compuesta: Fila 0 (Semáforo 4 tarjetas) + Filas 1 y 2 (4 gráficos)
-    fig = plt.figure(figsize=(16.5, 11.4))
-    fig.patch.set_facecolor("white")
+    tarjetas = [
+        {
+            "titulo": "ACTIVIDAD (IMACEC)",
+            "valor_principal": f"{ultima_var:+.2f}%",
+            "subtitulo": f"Corte {ts_ultima_var.strftime('%Y-%m')} | Prom. hist.: {media_hist_var:+.2f}%",
+            "estado_texto": sem_act[0],
+            "color_semaforo": sem_act[1],
+            "color_fondo": sem_act[2],
+        },
+        {
+            "titulo": "IMPULSO EXTERNO (COBRE)",
+            "valor_principal": f"{ultima_var_cobre:+.2f}%",
+            "subtitulo": f"Var. 12M a {ts_cobre} | Términos intercambio",
+            "estado_texto": sem_cob[0],
+            "color_semaforo": sem_cob[1],
+            "color_fondo": sem_cob[2],
+        },
+        {
+            "titulo": "POLÍTICA MONETARIA (TPM)",
+            "valor_principal": f"{ultima_tpm:.2f}%",
+            "subtitulo": f"Nivel a {ts_tpm} | Var. 12M: {delta_tpm_12m:+.2f} pp",
+            "estado_texto": sem_tpm[0],
+            "color_semaforo": sem_tpm[1],
+            "color_fondo": sem_tpm[2],
+        },
+        {
+            "titulo": f"PROYECCIÓN AR({p_opt}) {idx_12m + 1}M",
+            "valor_principal": f"{fc_12m:+.2f}%",
+            "subtitulo": f"Horizonte {fecha_fc_12m} | IC 95%: [{fc_12m_inf:+.1f}%, {fc_12m_sup:+.1f}%]",
+            "estado_texto": sem_fc[0],
+            "color_semaforo": sem_fc[1],
+            "color_fondo": sem_fc[2],
+        },
+    ]
 
-    fig.suptitle(
-        "MONITOR DE COYUNTURA MACROECONÓMICA Y PROYECCIÓN DEL IMACEC — CHILE",
-        fontsize=15.5,
-        fontweight="bold",
-        color="#1b365d",
-        y=0.975,
-    )
-    fig.text(
-        0.5,
-        0.945,
-        f"Fuente: Banco Central de Chile (API SieteRestWS -> SQLite) | Período: {FECHA_INICIO} a {FECHA_FIN} | Modelo Principal: AR({p_opt}) [AIC Train] ({len(res_fc['fc_media'])}M, IC 95% OOS) | Grupo 12",
-        ha="center",
-        fontsize=9.6,
-        color="#4a5568",
-    )
+    return {
+        "imacec": imacec,
+        "cobre": cobre,
+        "comercio": comercio,
+        "tpm": tpm,
+        "ts_ultimo_nivel": ts_ultimo_nivel,
+        "ultimo_nivel": ultimo_nivel,
+        "var_s": var_s,
+        "ts_ultima_var": ts_ultima_var,
+        "ultima_var": ultima_var,
+        "media_hist_var": media_hist_var,
+        "tarjetas": tarjetas,
+    }
 
-    gs = fig.add_gridspec(
-        3,
-        4,
-        height_ratios=[0.62, 1.55, 1.55],
-        hspace=0.38,
-        wspace=0.25,
-        top=0.915,
-        bottom=0.055,
-        left=0.055,
-        right=0.955,
-    )
 
-    # -------------------------------------------------------------------------
-    # FILA 0: SEMÁFORO MACROECONÓMICO DE COYUNTURA (4 TARJETAS KPI)
-    # -------------------------------------------------------------------------
-    _dibujar_tarjeta_semaforo(
-        fig.add_subplot(gs[0, 0]),
-        titulo="ACTIVIDAD (IMACEC)",
-        valor_principal=f"{ultima_var:+.2f}%",
-        subtitulo=f"Corte {ts_ultima_var.strftime('%Y-%m')} | Prom. hist.: {media_hist_var:+.2f}%",
-        estado_texto=sem_act[0],
-        color_semaforo=sem_act[1],
-        color_fondo=sem_act[2],
-    )
-    _dibujar_tarjeta_semaforo(
-        fig.add_subplot(gs[0, 1]),
-        titulo="IMPULSO EXTERNO (COBRE)",
-        valor_principal=f"{ultima_var_cobre:+.2f}%",
-        subtitulo=f"Var. 12M a {ts_cobre} | Términos intercambio",
-        estado_texto=sem_cob[0],
-        color_semaforo=sem_cob[1],
-        color_fondo=sem_cob[2],
-    )
-    _dibujar_tarjeta_semaforo(
-        fig.add_subplot(gs[0, 2]),
-        titulo="POLÍTICA MONETARIA (TPM)",
-        valor_principal=f"{ultima_tpm:.2f}%",
-        subtitulo=f"Nivel a {ts_tpm} | Var. 12M: {delta_tpm_12m:+.2f} pp",
-        estado_texto=sem_tpm[0],
-        color_semaforo=sem_tpm[1],
-        color_fondo=sem_tpm[2],
-    )
-    _dibujar_tarjeta_semaforo(
-        fig.add_subplot(gs[0, 3]),
-        titulo=f"PROYECCIÓN AR({p_opt}) ({idx_12m + 1}M)",
-        valor_principal=f"{fc_12m:+.2f}%",
-        subtitulo=f"Horizonte {fecha_fc_12m} | IC 95%: [{fc_12m_inf:+.1f}%, {fc_12m_sup:+.1f}%]",
-        estado_texto=sem_fc[0],
-        color_semaforo=sem_fc[1],
-        color_fondo=sem_fc[2],
-    )
+def _renderizar_panel_1(ax: plt.Axes, datos: dict) -> None:
+    """Panel 1: Serie principal en nivel + Promedio móvil 12M."""
+    imacec = datos["imacec"]
+    ts_ultimo = datos["ts_ultimo_nivel"]
+    ultimo_val = datos["ultimo_nivel"]
 
-    # -------------------------------------------------------------------------
-    # PANEL 1: Serie principal en nivel + Promedio móvil 12M (2010-01 a 2026-08)
-    # -------------------------------------------------------------------------
-    ax1 = fig.add_subplot(gs[1, 0:2])
-    ax1.plot(imacec.index, imacec["valor_mensual"], color="#1f4e78", lw=1.7, label="IMACEC (Índice 2018=100)")
-    ax1.plot(imacec.index, imacec["pm_12m"], color="#d95f02", lw=1.7, linestyle="--", label="Promedio móvil 12M")
-    ax1.scatter(ts_ultimo_nivel, ultimo_nivel, color="#c00000", s=60, zorder=5)
-    ax1.annotate(
-        f"Último ({ts_ultimo_nivel.strftime('%Y-%m')}): {ultimo_nivel:.1f}",
-        xy=(ts_ultimo_nivel, ultimo_nivel),
+    ax.plot(imacec.index, imacec["valor_mensual"], color="#1f4e78", lw=1.7, label="IMACEC (Índice 2018=100)")
+    ax.plot(imacec.index, imacec["pm_12m"], color="#d95f02", lw=1.7, linestyle="--", label="Promedio móvil 12M")
+    ax.scatter(ts_ultimo, ultimo_val, color="#c00000", s=60, zorder=5)
+    ax.annotate(
+        f"Último ({ts_ultimo.strftime('%Y-%m')}): {ultimo_val:.1f}",
+        xy=(ts_ultimo, ultimo_val),
         xytext=(-125, -22),
         textcoords="offset points",
         fontsize=9.5,
@@ -443,23 +418,38 @@ def construir_dashboard(
         color="#c00000",
         arrowprops=dict(arrowstyle="->", color="#c00000", lw=1),
     )
-    ax1.set_xlim(LIMITE_X_MIN, LIMITE_X_MAX)
-    ax1.xaxis.set_major_locator(mdates.YearLocator(2))
-    ax1.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
-    ax1.set_title("1. Trayectoria Histórica del IMACEC y Tendencia (2010-01 a 2026-08)", fontsize=11, fontweight="bold", color="#1b365d")
-    ax1.set_ylabel("Índice 2018 = 100")
-    ax1.legend(loc="upper left", frameon=True)
+    ax.set_xlim(LIMITE_X_MIN, LIMITE_X_MAX)
+    ax.xaxis.set_major_locator(mdates.YearLocator(2))
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
+    ax.set_title(
+        "1. Trayectoria Histórica del IMACEC y Tendencia (2010-01 a 2026-08)",
+        fontsize=11,
+        fontweight="bold",
+        color="#1b365d",
+    )
+    ax.set_ylabel("Índice 2018 = 100")
+    ax.legend(loc="upper left", frameon=True)
 
-    # -------------------------------------------------------------------------
-    # PANEL 2: Indicador derivado — Variación Interanual (%) (2010-01 a 2026-08)
-    # -------------------------------------------------------------------------
-    ax2 = fig.add_subplot(gs[1, 2:4])
+
+def _renderizar_panel_2(ax: plt.Axes, datos: dict) -> None:
+    """Panel 2: Dinámica interanual del IMACEC (Var. % 12 Meses)."""
+    var_s = datos["var_s"]
+    media_hist_var = datos["media_hist_var"]
+    ts_ultima_var = datos["ts_ultima_var"]
+    ultima_var = datos["ultima_var"]
+
     colores_barras = ["#2b6cb0" if v >= 0 else "#c53030" for v in var_s]
-    ax2.bar(var_s.index, var_s, width=22, color=colores_barras, alpha=0.85, label="Var. Interanual (%)")
-    ax2.axhline(0, color="black", lw=0.9)
-    ax2.axhline(media_hist_var, color="#2f855a", linestyle="--", lw=1.4, label=f"Promedio histórico ({media_hist_var:.1f}%)")
-    ax2.scatter(ts_ultima_var, ultima_var, color="#c00000", s=60, zorder=5)
-    ax2.annotate(
+    ax.bar(var_s.index, var_s, width=22, color=colores_barras, alpha=0.85, label="Var. Interanual (%)")
+    ax.axhline(0, color="black", lw=0.9)
+    ax.axhline(
+        media_hist_var,
+        color="#2f855a",
+        linestyle="--",
+        lw=1.4,
+        label=f"Promedio histórico ({media_hist_var:.1f}%)",
+    )
+    ax.scatter(ts_ultima_var, ultima_var, color="#c00000", s=60, zorder=5)
+    ax.annotate(
         f"{ts_ultima_var.strftime('%Y-%m')}: {ultima_var:+.1f}%",
         xy=(ts_ultima_var, ultima_var),
         xytext=(-85, 16 if ultima_var >= 0 else -22),
@@ -468,55 +458,109 @@ def construir_dashboard(
         fontweight="bold",
         color="#c00000",
     )
-    ax2.set_xlim(LIMITE_X_MIN, LIMITE_X_MAX)
-    ax2.xaxis.set_major_locator(mdates.YearLocator(2))
-    ax2.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
-    ax2.set_title("2. Dinámica Interanual del IMACEC (Var. % 12 Meses)", fontsize=11, fontweight="bold", color="#1b365d")
-    ax2.set_ylabel("Variación % 12M")
-    ax2.legend(loc="upper left", frameon=True)
+    ax.set_xlim(LIMITE_X_MIN, LIMITE_X_MAX)
+    ax.xaxis.set_major_locator(mdates.YearLocator(2))
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
+    ax.set_title(
+        "2. Dinámica Interanual del IMACEC (Var. % 12 Meses)",
+        fontsize=11,
+        fontweight="bold",
+        color="#1b365d",
+    )
+    ax.set_ylabel("Variación % 12M")
+    ax.legend(loc="upper left", frameon=True)
 
-    # -------------------------------------------------------------------------
-    # PANEL 3: Drivers Sectoriales, Externos y TPM (2010-01 a 2026-08)
-    # -------------------------------------------------------------------------
-    ax3 = fig.add_subplot(gs[2, 0:2])
-    ax3.plot(comercio.index, comercio["var_12m_pct"], color="#2b6cb0", lw=1.5, label="Sectorial: IMACEC Comercio (Var. % 12M)")
-    ax3.plot(cobre.index, cobre["var_12m_pct"], color="#dd6b20", lw=1.5, alpha=0.85, label="Externo: Precio Cobre (Var. % 12M)")
-    ax3.axhline(0, color="black", lw=0.8, linestyle=":")
+
+def _renderizar_panel_3(ax: plt.Axes, datos: dict) -> None:
+    """Panel 3: Drivers sectoriales, externos y TPM."""
+    comercio = datos["comercio"]
+    cobre = datos["cobre"]
+    tpm = datos["tpm"]
+
+    ax.plot(comercio.index, comercio["var_12m_pct"], color="#2b6cb0", lw=1.5, label="Sectorial: IMACEC Comercio (Var. % 12M)")
+    ax.plot(cobre.index, cobre["var_12m_pct"], color="#dd6b20", lw=1.5, alpha=0.85, label="Externo: Precio Cobre (Var. % 12M)")
+    ax.axhline(0, color="black", lw=0.8, linestyle=":")
 
     if not tpm.dropna(how="all").empty:
-        ax3_b = ax3.twinx()
-        ax3_b.plot(tpm.index, tpm["valor_mensual"], color="#718096", lw=1.4, linestyle="--", label="TPM (%) [eje der.]")
-        ax3_b.set_ylabel("TPM (%)", color="#718096")
-        ax3_b.grid(False)
-        lines_1, labels_1 = ax3.get_legend_handles_labels()
-        lines_2, labels_2 = ax3_b.get_legend_handles_labels()
-        ax3.legend(lines_1 + lines_2, labels_1 + labels_2, loc="upper left", fontsize=8.5, frameon=True)
+        ax_b = ax.twinx()
+        ax_b.plot(tpm.index, tpm["valor_mensual"], color="#718096", lw=1.4, linestyle="--", label="TPM (%) [eje der.]")
+        ax_b.set_ylabel("TPM (%)", color="#718096")
+        ax_b.grid(False)
+        lines_1, labels_1 = ax.get_legend_handles_labels()
+        lines_2, labels_2 = ax_b.get_legend_handles_labels()
+        ax.legend(lines_1 + lines_2, labels_1 + labels_2, loc="upper left", fontsize=8.5, frameon=True)
     else:
-        ax3.legend(loc="upper left", fontsize=9, frameon=True)
+        ax.legend(loc="upper left", fontsize=9, frameon=True)
 
-    ax3.set_xlim(LIMITE_X_MIN, LIMITE_X_MAX)
-    ax3.xaxis.set_major_locator(mdates.YearLocator(2))
-    ax3.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
-    ax3.set_title("3. Indicadores Sectoriales, Externos y TPM (2010-01 a 2026-08)", fontsize=11, fontweight="bold", color="#1b365d")
-    ax3.set_ylabel("Variación % 12M")
+    ax.set_xlim(LIMITE_X_MIN, LIMITE_X_MAX)
+    ax.xaxis.set_major_locator(mdates.YearLocator(2))
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
+    ax.set_title(
+        "3. Indicadores Sectoriales, Externos y TPM (2010-01 a 2026-08)",
+        fontsize=11,
+        fontweight="bold",
+        color="#1b365d",
+    )
+    ax.set_ylabel("Variación % 12M")
 
-    # -------------------------------------------------------------------------
-    # PANEL 4: Backtesting Multi-Horizonte + Proyección Principal AR(p*) (24M)
-    # -------------------------------------------------------------------------
-    ax4 = fig.add_subplot(gs[2, 2:4])
+
+def _renderizar_panel_4(
+    ax: plt.Axes,
+    res_fc: dict,
+    fontsize_leyenda: float = 7.6,
+    fontsize_metricas: float = 8.1,
+) -> None:
+    """Panel 4: Evaluación Multi-Horizonte + Proyección Principal AR(p*) con anclaje continuo."""
+    p_opt = res_fc["p_optimo"]
     y_hist = res_fc["y"].iloc[-48:]
-    ax4.plot(y_hist.index, y_hist, color="black", lw=2, label="Observado (Var. % 12M)")
-    ax4.plot(res_fc["preds_h1"].index, res_fc["preds_h1"], "--o", color="#1f4e78", ms=3, alpha=0.85, label=f"AR({p_opt}) Eval. OOS (h=1, {len(res_fc['preds_h1'])} cortes)")
-    ax4.plot(res_fc["bench_h1"].index, res_fc["bench_h1"], ":s", color="#718096", ms=3, alpha=0.8, label="Benchmark Ingenuo (h=1)")
+
+    ax.plot(y_hist.index, y_hist, color="black", lw=2, label="Observado (Var. % 12M)")
+    ax.plot(
+        res_fc["preds_h1"].index,
+        res_fc["preds_h1"],
+        "--o",
+        color="#1f4e78",
+        ms=3,
+        alpha=0.85,
+        label=f"AR({p_opt}) Eval. OOS (h=1, {len(res_fc['preds_h1'])} cortes)",
+    )
+    ax.plot(
+        res_fc["bench_h1"].index,
+        res_fc["bench_h1"],
+        ":s",
+        color="#718096",
+        ms=3,
+        alpha=0.8,
+        label="Benchmark Ingenuo (h=1)",
+    )
 
     fc_m = res_fc["fc_media"]
     m = res_fc["metricas"]
     h_tot = len(fc_m)
-    ax4.plot(fc_m.index, fc_m, "-D", color="#2f855a", ms=3.5, lw=1.9, label=f"Proyección Principal: AR({p_opt}) ({h_tot}M)")
-    ax4.fill_between(
-        fc_m.index,
-        res_fc["fc_inf"],
-        res_fc["fc_sup"],
+
+    # Anclar inicio de la proyección y bandas IC 95% al último dato observado (h=0)
+    fecha_ancla = pd.DatetimeIndex([y_hist.index[-1]])
+    valor_ancla = float(y_hist.iloc[-1])
+
+    fechas_proy_plot = fecha_ancla.append(fc_m.index)
+    fc_media_plot = np.concatenate([[valor_ancla], fc_m.values])
+    ic_inf_plot = np.concatenate([[valor_ancla], res_fc["fc_inf"].values])
+    ic_sup_plot = np.concatenate([[valor_ancla], res_fc["fc_sup"].values])
+
+    ax.plot(
+        fechas_proy_plot,
+        fc_media_plot,
+        "-D",
+        color="#2f855a",
+        ms=3.5,
+        lw=1.9,
+        markevery=range(1, len(fechas_proy_plot)),
+        label=f"Proyección Principal: AR({p_opt}) ({h_tot}M)",
+    )
+    ax.fill_between(
+        fechas_proy_plot,
+        ic_inf_plot,
+        ic_sup_plot,
         color="#2f855a",
         alpha=0.18,
         label=f"IC 95% OOS (Cob. empírica: {m['cobertura_pct']:.1f}%)",
@@ -528,32 +572,147 @@ def construir_dashboard(
         f"• h=12M: AR({p_opt})={m['rmse_h12']:.2f} vs Ingenuo={m['ing_h12']:.2f}\n"
         f"• h={h_tot}M: AR({p_opt})={m['rmse_h24']:.2f} vs Ingenuo={m['ing_h24']:.2f}"
     )
-    ax4.text(
+    ax.text(
         0.02,
         0.04,
         texto_metricas,
-        transform=ax4.transAxes,
-        fontsize=8.1,
+        transform=ax.transAxes,
+        fontsize=fontsize_metricas,
         verticalalignment="bottom",
         bbox=dict(boxstyle="round,pad=0.4", facecolor="#f7fafc", edgecolor="#cbd5e0"),
     )
 
-    ax4.axhline(0, color="black", lw=0.8)
-    ax4.set_title(f"4. Evaluación Multi-Horizonte y Proyección Principal AR({p_opt}) ({h_tot} Meses)", fontsize=11, fontweight="bold", color="#1b365d")
-    ax4.set_ylabel("Variación % 12M")
-    ax4.xaxis.set_major_locator(mdates.YearLocator(1))
-    ax4.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
-    ax4.legend(loc="upper left", fontsize=7.6, frameon=True, ncol=2)
+    ax.axhline(0, color="black", lw=0.8)
+    ax.set_title(
+        f"4. Evaluación Multi-Horizonte y Proyección Principal AR({p_opt}) ({h_tot} Meses)",
+        fontsize=11,
+        fontweight="bold",
+        color="#1b365d",
+    )
+    ax.set_ylabel("Variación % 12M")
+    ax.xaxis.set_major_locator(mdates.YearLocator(1))
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
+    ax.legend(loc="upper left", fontsize=fontsize_leyenda, frameon=True, ncol=2)
 
-    plt.savefig(ruta_salida, dpi=300)
-    plt.close()
-    print(f"[OK] Dashboard generado exitosamente en: {ruta_salida}")
+
+def exportar_paneles_individuales(
+    datos: dict,
+    res_fc: dict,
+    directorio_salida: Path = RUTA_OUTPUTS,
+) -> list[Path]:
+    """Exporta cada componente (semáforo + 4 paneles) en su propio archivo PNG (300 DPI)."""
+    directorio_salida.mkdir(parents=True, exist_ok=True)
+    plt.style.use("seaborn-v0_8-whitegrid" if "seaborn-v0_8-whitegrid" in plt.style.available else "default")
+
+    archivos_generados: list[Path] = []
+
+    # 0. Tira individual del Semáforo Macroeconómico (4 tarjetas KPI)
+    fig_sem, axes_sem = plt.subplots(1, 4, figsize=(16.0, 2.5))
+    fig_sem.patch.set_facecolor("white")
+    for ax_kpi, card in zip(axes_sem, datos["tarjetas"]):
+        _dibujar_tarjeta_semaforo(ax_kpi, **card)
+    fig_sem.text(0.01, 0.02, PIE_FUENTE, fontsize=8.5, color="#4a5568")
+    plt.tight_layout(rect=[0, 0.06, 1, 1])
+    ruta_sem = directorio_salida / "00_semaforo_macroeconomico.png"
+    fig_sem.savefig(ruta_sem, dpi=300)
+    plt.close(fig_sem)
+    archivos_generados.append(ruta_sem)
+
+    # 1 al 4. Gráficos individuales
+    especificaciones = [
+        ("01_trayectoria_imacec_nivel.png", lambda ax: _renderizar_panel_1(ax, datos)),
+        ("02_dinamica_interanual_imacec.png", lambda ax: _renderizar_panel_2(ax, datos)),
+        ("03_drivers_sectoriales_externos_tpm.png", lambda ax: _renderizar_panel_3(ax, datos)),
+        (
+            "04_evaluacion_proyeccion_ar10.png",
+            lambda ax: _renderizar_panel_4(ax, res_fc, fontsize_leyenda=8.5, fontsize_metricas=8.6),
+        ),
+    ]
+
+    for nombre_archivo, render_fn in especificaciones:
+        fig, ax = plt.subplots(figsize=(11.5, 5.2))
+        fig.patch.set_facecolor("white")
+        render_fn(ax)
+        fig.text(0.012, 0.01, PIE_FUENTE, fontsize=8.5, color="#4a5568")
+        plt.tight_layout(rect=[0, 0.03, 1, 1])
+        ruta_png = directorio_salida / nombre_archivo
+        fig.savefig(ruta_png, dpi=300)
+        plt.close(fig)
+        archivos_generados.append(ruta_png)
+
+    return archivos_generados
+
+
+def construir_dashboard(
+    df: pd.DataFrame,
+    res_fc: dict,
+    ruta_salida: Path = RUTA_SALIDA_DEFAULT,
+    exportar_compuesto: bool = True,
+    exportar_separados: bool = True,
+) -> None:
+    """Construye y exporta el dashboard compuesto y/o los gráficos individuales."""
+    ruta_salida.parent.mkdir(parents=True, exist_ok=True)
+    plt.style.use("seaborn-v0_8-whitegrid" if "seaborn-v0_8-whitegrid" in plt.style.available else "default")
+
+    p_opt = res_fc["p_optimo"]
+    datos = _preparar_series_y_tarjetas(df, res_fc)
+
+    if exportar_compuesto:
+        fig = plt.figure(figsize=(16.5, 11.4))
+        fig.patch.set_facecolor("white")
+
+        fig.suptitle(
+            "MONITOR DE COYUNTURA MACROECONÓMICA Y PROYECCIÓN DEL IMACEC — CHILE",
+            fontsize=15.5,
+            fontweight="bold",
+            color="#1b365d",
+            y=0.975,
+        )
+        fig.text(
+            0.5,
+            0.945,
+            f"Fuente: Banco Central de Chile (API SieteRestWS -> SQLite) | Período: {FECHA_INICIO} a {FECHA_FIN} | Modelo Principal: AR({p_opt}) [AIC Train] ({len(res_fc['fc_media'])}M, IC 95% OOS) | Grupo 12",
+            ha="center",
+            fontsize=9.6,
+            color="#4a5568",
+        )
+
+        gs = fig.add_gridspec(
+            3,
+            4,
+            height_ratios=[0.62, 1.55, 1.55],
+            hspace=0.38,
+            wspace=0.25,
+            top=0.915,
+            bottom=0.055,
+            left=0.055,
+            right=0.955,
+        )
+
+        for idx_card, card in enumerate(datos["tarjetas"]):
+            _dibujar_tarjeta_semaforo(fig.add_subplot(gs[0, idx_card]), **card)
+
+        _renderizar_panel_1(fig.add_subplot(gs[1, 0:2]), datos)
+        _renderizar_panel_2(fig.add_subplot(gs[1, 2:4]), datos)
+        _renderizar_panel_3(fig.add_subplot(gs[2, 0:2]), datos)
+        _renderizar_panel_4(fig.add_subplot(gs[2, 2:4]), res_fc)
+
+        plt.savefig(ruta_salida, dpi=300)
+        plt.close(fig)
+        print(f"[OK] Dashboard compuesto generado en: {ruta_salida}")
+
+    if exportar_separados:
+        archivos_ind = exportar_paneles_individuales(datos, res_fc, directorio_salida=ruta_salida.parent)
+        print("[OK] Imágenes individuales generadas:")
+        for ruta_ind in archivos_ind:
+            print(f"     - {ruta_ind}")
 
 
 def main(
     ruta_salida: Path = RUTA_SALIDA_DEFAULT,
     n_cortes: int = 24,
     h_futuro: int = 24,
+    solo_individuales: bool = False,
 ) -> None:
     """Orquesta la consulta SQL, evaluación fuera de muestra y exportación gráfica."""
     print("======================================================")
@@ -573,20 +732,26 @@ def main(
     print(f"[2/3] Ejecutando backtesting OOS ({n_cortes} cortes) y proyección a {h_futuro}M...")
     resultados_fc = evaluar_y_proyectar_imacec(df_dash, n_cortes=n_cortes, h_futuro=h_futuro)
 
-    print("[3/3] Renderizando semáforo macroeconómico y paneles analíticos...")
-    construir_dashboard(df_dash, resultados_fc, ruta_salida=ruta_salida)
+    print("[3/3] Renderizando visualizaciones en alta resolución (300 DPI)...")
+    construir_dashboard(
+        df_dash,
+        resultados_fc,
+        ruta_salida=ruta_salida,
+        exportar_compuesto=not solo_individuales,
+        exportar_separados=True,
+    )
 
 
 def _parsear_argumentos() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Genera el monitor ejecutivo de coyuntura y proyección del IMACEC."
+        description="Genera el monitor ejecutivo y los gráficos individuales del IMACEC."
     )
     parser.add_argument(
         "--salida",
         type=Path,
         default=RUTA_SALIDA_DEFAULT,
         metavar="RUTA_PNG",
-        help=f"Ruta de exportación de la imagen PNG (por defecto: {RUTA_SALIDA_DEFAULT}).",
+        help=f"Ruta de exportación de la imagen principal (por defecto: {RUTA_SALIDA_DEFAULT}).",
     )
     parser.add_argument(
         "--cortes",
@@ -602,13 +767,23 @@ def _parsear_argumentos() -> argparse.Namespace:
         metavar="MESES",
         help="Horizonte de proyección futura en meses (por defecto: 24).",
     )
+    parser.add_argument(
+        "--solo-individuales",
+        action="store_true",
+        help="Exporta únicamente las imágenes individuales sin generar la lámina compuesta.",
+    )
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     try:
         args = _parsear_argumentos()
-        main(ruta_salida=args.salida, n_cortes=args.cortes, h_futuro=args.horizonte)
+        main(
+            ruta_salida=args.salida,
+            n_cortes=args.cortes,
+            h_futuro=args.horizonte,
+            solo_individuales=args.solo_individuales,
+        )
     except Exception as exc:
         print(f"\n[ERROR] Falló la generación del dashboard: {exc}", file=sys.stderr)
         sys.exit(1)
